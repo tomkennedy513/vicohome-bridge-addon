@@ -28,14 +28,14 @@ bash tests/docker_smoke.sh vicohome:test-amd64
 bash tests/docker_smoke.sh vicohome:test-aarch64
 ```
 
-The broker smoke test starts an isolated Mosquitto container/network, runs real
+The broker smoke test starts isolated anonymous and authenticated Mosquitto containers on a test network, runs real
 MQTT publication/subscription through the built add-on's Bash/jq/Go binaries,
-then removes the test container/network. No host broker ports are exposed. It
+then removes the test containers/network. No host broker ports are exposed. It
 checks bird metadata, safely quoted discovery, retained state/idle, transient
 bird events, persistent dedup, process error behavior, and the real run.sh main
 loop/graceful shutdown with fake cloud responses. It supplies the s6 environment
 directory and fixture options in Bashio's cache; it does not start Supervisor,
-exercise the normal /init sequence, or authenticate with Vicohome.
+exercise the normal /init sequence, or authenticate with Vicohome. The authenticated-broker regression rejects the configured password, verifies repeated polling and clean shutdown without acknowledgement, then confirms recovery with corrected credentials using the same ledger.
 
 Home Assistant installation, actual camera payload variations, cloud windowing,
 region credentials, template rendering, automations, TLS with your broker,

@@ -1,5 +1,10 @@
 # Vicohome Bridge Add-on Changelog
 
+## 2.1.1
+- Keep polling after a camera discovery/telemetry publication fails, including MQTT authentication rejection or broker outages.
+- Initialize Bashio at script scope so shutdown logging retains its variables after the main function exits.
+- Add authenticated-broker regression coverage for repeated rejected connections, clean shutdown, and recovery with corrected credentials using the same delivery ledger.
+
 ## 2.1.0
 - Build native amd64 and aarch64 images using architecture-specific Home Assistant bases and test both in CI.
 - Preserve CLI event classification, normalize timestamps to UTC, return JSON arrays for empty lists, and fail correctly on authentication, API, HTTP, and parsing errors.
