@@ -208,14 +208,13 @@ poll_device_health() {
   bashio::log.debug "Device list payload preview: $(echo "${devices_output}" | tr -d '\n' | head -c 400)"
 
   echo "${devices_output}" | jq -c '.[]' | while read -r device; do
-    publish_device_health "${device}"
+    if ! publish_device_health "${device}"; then
+      bashio::log.warning "Device discovery/telemetry failed; retrying next poll."
+    fi
   done
 }
 
 bridge_main() {
-  # Load bashio library
-  source /usr/lib/bashio/bashio.sh
-
   # ==========================
   #  Config from options.json
   # ==========================
@@ -304,5 +303,8 @@ bridge_main() {
 }
 
 if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+  # Bashio uses declare for its globals; source it outside a function so EXIT
+  # logging still works after bridge_main unwinds on an error or shutdown.
+  source /usr/lib/bashio/bashio.sh
   bridge_main
 fi

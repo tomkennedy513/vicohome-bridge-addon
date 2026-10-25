@@ -4,7 +4,7 @@ Repo: <https://github.com/tomkennedy513/vicohome-bridge-addon>
 
 Fork of [KIWIDUDE564/vicohome-bridge-addon](https://github.com/KIWIDUDE564/vicohome-bridge-addon), preserving the upstream bridge architecture and bundled dydx/vico-cli attribution.
 
-Version 2.1.0 supports **amd64** and **aarch64 (ARM64)**. Changes under review live on `fix/multiarch-stability`; adding the repository URL in Home Assistant uses the default branch, so it will not install this branch until it is integrated. To test before integration, clone this fork with `git clone --branch fix/multiarch-stability https://github.com/tomkennedy513/vicohome-bridge-addon.git`, copy its `vicohome_bridge` directory into Home Assistant's `/addons` directory, reload the add-on store, and install it as a local add-on. Back up existing add-on data first; a local add-on has a different Supervisor identity.
+Version 2.1.1 supports **amd64** and **aarch64 (ARM64)**. Changes under review live on `fix/multiarch-stability`; adding the repository URL in Home Assistant uses the default branch, so it will not install this branch until it is integrated. To test before integration, clone this fork with `git clone --branch fix/multiarch-stability https://github.com/tomkennedy513/vicohome-bridge-addon.git`, copy its `vicohome_bridge` directory into Home Assistant's `/addons` directory, reload the add-on store, and install it as a local add-on. Back up existing add-on data first; a local add-on has a different Supervisor identity.
 
 > ⚠️ **Unofficial integration.**  
 > This add-on is just a thin wrapper around the excellent open-source
@@ -158,7 +158,7 @@ Then:
    [INFO] Using MQTT broker at core-mosquitto:1883, base topic: vicohome
    ```
 
-Supervisor discovery remains the default. For an external broker, set `mqtt_host`, `mqtt_port` (default `1883`), `mqtt_username`, and `mqtt_password` in the add-on options. Set `mqtt_tls: true` and the broker's TLS port (usually `8883`) for certificate-verified TLS using the container's system CA bundle. Private CA/client certificates are not configurable in this release. Empty `mqtt_host` selects the Supervisor service. The Home Assistant MQTT integration must use the same broker. Credentials with spaces or shell characters are passed as individual arguments.
+Supervisor discovery remains the default. For an external broker, set `mqtt_host` to a hostname/IP only (for example `core-mosquitto`, without `mqtt://`), `mqtt_port` (default `1883`), `mqtt_username`, and `mqtt_password` in the add-on options. Set `mqtt_tls: true` and the broker's TLS port (usually `8883`) for certificate-verified TLS using the container's system CA bundle. Private CA/client certificates are not configurable in this release. Empty `mqtt_host` selects the Supervisor service. The Home Assistant MQTT integration must use the same broker. Credentials with spaces or shell characters are passed as individual arguments.
 
 ### Troubleshooting & verbose logging
 
