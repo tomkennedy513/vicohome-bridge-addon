@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 from pathlib import Path
@@ -44,7 +45,7 @@ init_event_store || exit 1
         return [(r[r.index('-t')+1],r[r.index('-m')+1]) for r in rows]
 
     def event(self, n, camera='A', ts=None):
-        return dict(traceId=str(n), serialNumber=camera, timestamp=ts or 2000000000+n, eventType='motion')
+        return dict(traceId=str(n), serialNumber=camera, timestamp=datetime.datetime.fromtimestamp(ts or 2000000000+n,datetime.timezone.utc).isoformat().replace('+00:00','Z'), eventType='motion')
 
     def test_initial_latest_per_camera_and_restart(self):
         old=[self.event(i,c,1999999900+i) for c in ['A','B'] for i in range(10)]
@@ -127,7 +128,7 @@ init_event_store || exit 1
         self.batch(events)
         self.batch([dict(self.event(3),traceId='')])
         sent=[json.loads(p)['timestamp'] for t,p in self.messages() if t.endswith('/events')]
-        self.assertEqual(sent,[2000000001,2000000002,2000000003])
+        self.assertEqual(sent,[self.event(i)['timestamp'] for i in [1,2,3]])
         before=len(self.messages());self.batch(events)
         self.assertEqual(len(self.messages()),before)
 
@@ -205,6 +206,13 @@ init_event_store || exit 1
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertTrue(json.loads((self.data/'delivery.json').read_text())['history_complete'])
         self.assertEqual(sum(t.endswith('/image/url') for t,p in self.messages()),2)
+
+    def test_cli_iso_timestamps_publish_event_and_image(self):
+        event=dict(self.event(1),timestamp='2033-05-18T03:33:21Z',imageUrl='https://example.invalid/bird.jpg')
+        self.batch([event]);self.images([event])
+        self.assertEqual(sum(t.endswith('/events') for t,p in self.messages()),1)
+        self.assertEqual(sum(t.endswith('/state') for t,p in self.messages()),1)
+        self.assertEqual(sum(t.endswith('/image/url') for t,p in self.messages()),1)
 
     def test_corrupt_store_fails_closed(self):
         (self.data/'delivery.json').write_text('broken')

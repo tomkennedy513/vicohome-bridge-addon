@@ -6,7 +6,7 @@ source /usr/lib/bashio/bashio.sh
 cat > /data/options.json <<'JSON'
 {"email":"test@example.invalid","password":"test-only","mqtt_host":"authbroker","mqtt_port":1883,"mqtt_username":"bridge-user","mqtt_password":"wrong-password","mqtt_tls":false,"poll_interval":5,"base_topic":"vicofailure","log_level":"info","bootstrap_history":false,"region":"us","api_base_override":"https://cloud.invalid"}
 JSON
-jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"retryable",timestamp:($ts-1),eventType:"bird",birdName:"Robin"}]' > /tmp/cloud-events
+jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"retryable",timestamp:(($ts-1)|todateiso8601),eventType:"bird",birdName:"Robin"}]' > /tmp/cloud-events
 : > /tmp/cloud-calls
 cat > /tmp/fake-vico-cli <<'SH'
 #!/usr/bin/env bash

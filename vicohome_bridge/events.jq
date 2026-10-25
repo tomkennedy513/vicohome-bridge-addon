@@ -2,7 +2,8 @@
 def epoch:
   if type == "number" then (if . > 100000000000 then ./1000 else . end)
   elif type == "string" then
-    (try tonumber catch (try (sub(" ";"T") | if endswith("Z") or test("[+-][0-9]{2}:[0-9]{2}$") then . else .+"Z" end | fromdateiso8601) catch null))
+    . as $timestamp |
+    (try tonumber catch (try ($timestamp | sub(" ";"T") | if endswith("Z") or test("[+-][0-9]{2}:[0-9]{2}$") then . else .+"Z" end | fromdateiso8601) catch null))
   else null end;
 def camera: .serialNumber // .deviceId // .device_id // .camera_id // .camera.uuid // .cameraId // empty;
 def image_url:

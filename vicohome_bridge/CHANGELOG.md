@@ -1,5 +1,9 @@
 # Vicohome Bridge Add-on Changelog
 
+## 2.2.1
+- Fix ISO timestamp parsing in the bridge: jq's catch handler had received the numeric-conversion error instead of the original timestamp, silently filtering real CLI events and images.
+- Use actual CLI-style UTC ISO timestamps throughout delivery and broker regression fixtures to cover the full CLI-to-MQTT boundary.
+
 ## 2.2.0
 - Add a retained MQTT Latest Image entity to each existing camera device using the latest available event image URL, falling back to the bird keyshot URL.
 - Track image delivery separately so already-seen events can populate images after an upgrade without replaying motion or event-stream messages. Failed image publications retry, late history cannot replace newer images, and refreshed signed URLs can update the same event.

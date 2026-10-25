@@ -17,7 +17,7 @@ for attempt in {1..10}; do
   sleep 1
 done
 init_event_store
-old=$(jq -nc --argjson ts "$((BRIDGE_NOW - 10))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"old",timestamp:$ts,eventType:"bird",birdName:"Robin",imageUrl:"https://example.invalid/old.jpg"}]')
+old=$(jq -nc --argjson ts "$((BRIDGE_NOW - 10))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"old",timestamp:($ts|todateiso8601),eventType:"bird",birdName:"Robin",imageUrl:"https://example.invalid/old.jpg"}]')
 process_events "$old" history
 publish_latest_images "$old"
 image_config=$(mosquitto_sub -h broker -t homeassistant/image/vicohome_camera_v3_birdcam_latest_image/config -C 1 -W 15)
@@ -32,7 +32,7 @@ jq -e '.device.name == "Vicohome Feeder \"Garden\""' <<< "$config" >/dev/null
 mosquitto_sub -h broker -t vicohome/birdcam/events -C 1 -W 5 > /tmp/bird-event &
 listener=$!
 sleep 1
-live=$(jq -nc --argjson ts "$((BRIDGE_NOW + 1))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"new",timestamp:$ts,eventType:"bird",birdName:"Robin",keyShotUrl:"https://example.invalid/new.jpg"}]')
+live=$(jq -nc --argjson ts "$((BRIDGE_NOW + 1))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"new",timestamp:($ts|todateiso8601),eventType:"bird",birdName:"Robin",keyShotUrl:"https://example.invalid/new.jpg"}]')
 process_events "$live" live
 publish_latest_images "$live"
 [ "$(mosquitto_sub -h broker -t vicohome/birdcam/image/url -C 1 -W 15)" = https://example.invalid/new.jpg ]
@@ -63,7 +63,7 @@ cat > /tmp/fake-vico-cli <<'SH'
 if [ "$1" = devices ]; then
   echo '[]'
 else
-  jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"startup",timestamp:($ts-1),eventType:"bird",birdName:"Blackbird",imageUrl:"https://example.invalid/startup.jpg"}]'
+  jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"startup",timestamp:(($ts-1)|todateiso8601),eventType:"bird",birdName:"Blackbird",imageUrl:"https://example.invalid/startup.jpg"}]'
 fi
 SH
 chmod +x /tmp/fake-vico-cli
