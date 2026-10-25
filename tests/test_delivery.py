@@ -25,8 +25,12 @@ bashio::log.debug() { :; }
 bashio::log.info() { :; }
 ensure_discovery_published() { return 0; }
 mqtt_publish() {
- python3 -c 'import json,os,sys; open(os.environ["LOG"],"a").write(json.dumps(sys.argv[1:])+"\n")' "$@"
+ python3 -c 'import json,os,sys; a=sys.argv[1:]; a += ["-m",open(a[a.index("-f")+1]).read()] if "-f" in a else []; open(os.environ["LOG"],"a").write(json.dumps(a)+"\n")' "$@"
  [[ "$*" != *"$FAIL"* || -z "$FAIL" ]]
+}
+download_event_image() {
+ printf '%s' 'fixture image bytes' > "$2"
+ printf '%s\n' '{"content_type":"image/jpeg","bytes":19}'
 }
 DATA_DIR="$DATA"; BASE_TOPIC=vicohome; MQTT_ARGS=(); POLL_INTERVAL=60
 BRIDGE_NOW=2000000000
@@ -146,52 +150,90 @@ init_event_store || exit 1
             self.assertNotEqual(self.shell('init_event_store').returncode,0,field)
         self.assertEqual(self.messages(),[])
 
+    def image_messages(self):
+        return [(t,p) for t,p in self.messages() if t.endswith('/image/url')]
+
     def images(self,events,fail=''):
         result=self.shell('publish_latest_images "$(cat "$DATA/input")"',events,fail)
         self.assertEqual(result.returncode,0,result.stderr)
-        return [(t,p) for t,p in self.messages() if t.endswith('/image/url')]
+        return [(t,p) for t,p in self.image_messages() if t.endswith('/image/url')]
+
+    def test_image_publishes_bytes_and_marks_transport(self):
+        self.images([dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')])
+        self.assertIn(('vicohome/a/image','fixture image bytes'),self.messages())
+        image=json.loads((self.data/'delivery.json').read_text())['images']['A']
+        self.assertEqual(image['transport'],'binary')
+        self.assertEqual(image['content_type'],'image/jpeg')
+
+    def test_url_only_checkpoint_migrates_without_event_replay(self):
+        event=dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')
+        self.images([event]);self.log.unlink()
+        path=self.data/'delivery.json';ledger=json.loads(path.read_text())
+        ledger['images']['A'].pop('transport');ledger['images']['A'].pop('content_type')
+        path.write_text(json.dumps(ledger))
+        self.images([event])
+        self.assertIn(('vicohome/a/image','fixture image bytes'),self.messages())
+        self.assertFalse(any(t.endswith(('/events','/motion','/state')) for t,p in self.messages()))
+        self.images([event]);self.assertEqual(len(self.image_messages()),1)
+
+    def test_failed_image_download_does_not_ack_or_publish(self):
+        event=dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')
+        result=self.shell('download_event_image() { return 1; }; publish_latest_images "$(cat "$DATA/input")"',[event])
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertEqual(self.messages(),[])
+        self.assertEqual(json.loads((self.data/'delivery.json').read_text()).get('images',{}),{})
+        self.images([event]);self.assertEqual(len(self.image_messages()),1)
+
+    def test_failed_download_does_not_block_other_cameras(self):
+        events=[dict(self.event(1,'A'),imageUrl='https://example.invalid/expired.jpg'),dict(self.event(2,'B'),imageUrl='https://example.invalid/good.jpg')]
+        command = """download_event_image() { [[ "$1" == *expired* ]] && return 1; printf "%s" "fixture image bytes" > "$2"; echo '{"content_type":"image/jpeg","bytes":19}'; }; publish_latest_images "$(cat "$DATA/input")" """
+        result=self.shell(command,events)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertIn(('vicohome/b/image','fixture image bytes'),self.messages())
+        images=json.loads((self.data/'delivery.json').read_text()).get('images',{})
+        self.assertNotIn('A',images);self.assertIn('B',images)
 
     def test_image_latest_per_camera_and_restart(self):
         events=[dict(self.event(i,c),imageUrl='https://example.invalid/'+c+str(i)+'.jpg') for c in ['A','B'] for i in [1,2]]
         self.images(events[::-1])
-        self.assertEqual(self.messages(),[('vicohome/a/image/url','https://example.invalid/A2.jpg'),('vicohome/b/image/url','https://example.invalid/B2.jpg')])
+        self.assertEqual(self.image_messages(),[('vicohome/a/image/url','https://example.invalid/A2.jpg'),('vicohome/b/image/url','https://example.invalid/B2.jpg')])
         self.images(events)
-        self.assertEqual(len(self.messages()),2)
+        self.assertEqual(len(self.image_messages()),2)
 
     def test_image_primary_keyshot_fallback_and_missing(self):
         events=[dict(self.event(1,'A'),imageUrl='https://example.invalid/primary.jpg',keyShotUrl='https://example.invalid/key.jpg'),dict(self.event(1,'B'),imageUrl='',keyShotUrl='https://example.invalid/key.jpg'),self.event(1,'C'),dict(self.event(1,'D'),imageUrl='javascript:bad')]
         self.images(events)
-        self.assertEqual(self.messages(),[('vicohome/a/image/url','https://example.invalid/primary.jpg'),('vicohome/b/image/url','https://example.invalid/key.jpg')])
+        self.assertEqual(self.image_messages(),[('vicohome/a/image/url','https://example.invalid/primary.jpg'),('vicohome/b/image/url','https://example.invalid/key.jpg')])
 
     def test_image_seen_events_seed_without_motion_replay(self):
         events=[dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')]
         self.batch(events);self.log.unlink()
         self.images(events)
-        self.assertEqual(self.messages(),[('vicohome/a/image/url','https://example.invalid/bird.jpg')])
+        self.assertEqual(self.image_messages(),[('vicohome/a/image/url','https://example.invalid/bird.jpg')])
 
     def test_image_failure_is_retryable(self):
         events=[dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')]
         self.images(events,fail='/image/url')
         self.assertEqual(json.loads((self.data/'delivery.json').read_text()).get('images',{}),{})
         self.images(events)
-        self.assertEqual(len(self.messages()),2)
+        self.assertEqual(len(self.image_messages()),2)
         self.assertEqual(json.loads((self.data/'delivery.json').read_text())['images']['A']['url'],'https://example.invalid/bird.jpg')
 
     def test_image_history_cannot_regress_newer_image(self):
         self.images([dict(self.event(3),imageUrl='https://example.invalid/new.jpg')])
         self.images([dict(self.event(1,ts=1999999900),imageUrl='https://example.invalid/old.jpg')])
-        self.assertEqual(len(self.messages()),1)
+        self.assertEqual(len(self.image_messages()),1)
 
     def test_image_rotated_url_refreshes_same_seen_event(self):
         self.images([dict(self.event(1),imageUrl='https://example.invalid/bird.jpg?sig=old')])
         self.images([dict(self.event(1),imageUrl='https://example.invalid/bird.jpg?sig=new')])
-        self.assertEqual(len(self.messages()),2)
-        self.assertTrue(self.messages()[-1][1].endswith('sig=new'))
+        self.assertEqual(len(self.image_messages()),2)
+        self.assertTrue(self.image_messages()[-1][1].endswith('sig=new'))
 
     def test_image_backlog_is_bounded_and_drains(self):
         events=[dict(self.event(1,'camera'+str(i)),imageUrl='https://example.invalid/'+str(i)+'.jpg') for i in range(65)]
-        self.images(events);self.assertEqual(len(self.messages()),60)
-        self.images(events);self.assertEqual(len(self.messages()),65)
+        self.images(events);self.assertEqual(len(self.image_messages()),60)
+        self.images(events);self.assertEqual(len(self.image_messages()),65)
 
     def test_history_image_failure_remains_retryable(self):
         cli=self.data/'history-cli'
@@ -205,7 +247,7 @@ init_event_store || exit 1
         result=self.shell(cmd,events)
         self.assertEqual(result.returncode,0,result.stderr)
         self.assertTrue(json.loads((self.data/'delivery.json').read_text())['history_complete'])
-        self.assertEqual(sum(t.endswith('/image/url') for t,p in self.messages()),2)
+        self.assertEqual(sum(t.endswith('/image/url') for t,p in self.image_messages()),2)
 
     def test_cli_iso_timestamps_publish_event_and_image(self):
         event=dict(self.event(1),timestamp='2033-05-18T03:33:21Z',imageUrl='https://example.invalid/bird.jpg')

@@ -4,7 +4,7 @@ Repo: <https://github.com/tomkennedy513/vicohome-bridge-addon>
 
 Fork of [KIWIDUDE564/vicohome-bridge-addon](https://github.com/KIWIDUDE564/vicohome-bridge-addon), preserving the upstream bridge architecture and bundled dydx/vico-cli attribution.
 
-Version 2.2.1 supports **amd64** and **aarch64 (ARM64)**. Changes under review live on `fix/multiarch-stability`; adding the repository URL in Home Assistant uses the default branch, so it will not install this branch until it is integrated. To test before integration, clone this fork with `git clone --branch fix/multiarch-stability https://github.com/tomkennedy513/vicohome-bridge-addon.git`, copy its `vicohome_bridge` directory into Home Assistant's `/addons` directory, reload the add-on store, and install it as a local add-on. Back up existing add-on data first; a local add-on has a different Supervisor identity.
+Version 2.2.2 supports **amd64** and **aarch64 (ARM64)**. Changes under review live on `fix/multiarch-stability`; adding the repository URL in Home Assistant uses the default branch, so it will not install this branch until it is integrated. To test before integration, clone this fork with `git clone --branch fix/multiarch-stability https://github.com/tomkennedy513/vicohome-bridge-addon.git`, copy its `vicohome_bridge` directory into Home Assistant's `/addons` directory, reload the add-on store, and install it as a local add-on. Back up existing add-on data first; a local add-on has a different Supervisor identity.
 
 > ⚠️ **Unofficial integration.**  
 > This add-on is just a thin wrapper around the excellent open-source
@@ -180,7 +180,7 @@ The bridge keeps an atomic delivery ledger at `/data/delivery.json`. Normal batc
 
 MQTT publications use QoS 1. An event is acknowledged locally only after all required publications succeed. A partial MQTT failure or a crash between broker acknowledgement and the ledger write can cause duplicate deliveries on retry, including a repeated motion pulse. This provides retryable, at-least-once publication attempts within the fetched API window, **not exactly-once delivery or a durable cloud queue**. Polling cannot recover events omitted by the cloud, and a prolonged outage or backlog can outlive the API window (normally 24 hours). Events and dedup IDs older than six days are excluded together, preventing pruning from replaying old motion. The ledger's latest per-camera state prevents late events from moving Last Event backwards. Backlog events more than 120 seconds old update the event stream/state without motion.
 
-Motion ON is transient. The single polling process tracks five-second reset deadlines, retries failed resets, and clears outstanding pulses on restart. Discovery sets Home Assistant `off_delay: 5` as a fallback and retains an idle OFF value; no background process is created per event. Discovery, Last Event state, and telemetry are retained so Home Assistant can recover them after restarting. Event stream messages and motion ON are not retained. Signed thumbnail/clip URLs may expire even while retained state remains available.
+Motion ON is transient. The single polling process tracks five-second reset deadlines, retries failed resets, and clears outstanding pulses on restart. Discovery sets Home Assistant `off_delay: 5` as a fallback and retains an idle OFF value; no background process is created per event. Discovery, Last Event state, and telemetry are retained so Home Assistant can recover them after restarting. Event stream messages and motion ON are not retained. Signed thumbnail/clip URLs may expire even while retained state remains available; the Latest Image entity uses retained image bytes and does not depend on the URL remaining valid.
 
 Availability uses retained online heartbeats and an offline publication on normal shutdown. **Short-lived publishers do not provide a persistent MQTT Last Will.** A hard crash, SIGKILL, host power loss, or broker disconnect can leave retained online stale until the next successful publication. This release does not claim immediate crash detection.
 
@@ -232,7 +232,8 @@ By default the add-on:
   - `vicohome/<safe_camera_id>/state`
   - `vicohome/<safe_camera_id>/motion` (`ON`/`OFF`)
   - `vicohome/<safe_camera_id>/telemetry` (battery/WiFi/online details)
-  - `vicohome/<safe_camera_id>/image/url` (retained latest image URL)
+  - `vicohome/<safe_camera_id>/image` (retained image bytes)
+  - `vicohome/<safe_camera_id>/image/url` (retained companion source URL)
 
 - Registers MQTT Discovery entries for:
 
@@ -262,11 +263,11 @@ All of this data ultimately comes from `vico-cli` – this add-on just forwards 
 
 After updating and restarting the add-on, each existing MQTT camera device gains a **Latest Image** entity. Add it to a dashboard using a **Picture entity** card and select that image entity in the UI. No manual MQTT YAML is required.
 
-The bridge selects the newest available image per camera from the fetched event window, using `imageUrl` first and `keyShotUrl` as the fallback. Home Assistant downloads the image from the retained URL. Events with missing/invalid URLs are skipped, preserving the last available image. Older history cannot replace a newer image.
+The bridge selects the newest available image per camera from the fetched event window, using `imageUrl` first and `keyShotUrl` as the fallback. The bridge downloads the snapshot, detects its image type from the bytes, and publishes the bytes retained over MQTT. Home Assistant does not need to fetch the cloud URL. This handles cloud storage responses labelled `binary/octet-stream` even though the payload is a JPEG/PNG image. Events with missing/invalid URLs are skipped, preserving the last available image. Older history cannot replace a newer image.
 
-Image delivery has an independent checkpoint in `/data/delivery.json`: previously seen events can seed images without replaying motion or event-stream messages, and failed image publications retry independently. Image publications are capped at 60 cameras per pass. A refreshed signed URL for the same sighting is republished when returned by the cloud; an unchanged URL is not republished on every poll.
+Image delivery has an independent checkpoint in `/data/delivery.json`: previously seen events can seed images without replaying motion or event-stream messages, and failed image publications retry independently. Existing image entities/checkpoints migrate automatically to binary MQTT delivery without changing their unique IDs. Image publications are capped at 60 cameras per pass. A refreshed signed URL for the same sighting is republished when returned by the cloud; an unchanged URL is not republished on every poll.
 
-These are event snapshots. Signed URLs may expire before another image arrives, and Home Assistant must be able to reach the image host. If the cloud window contains no usable image, the new entity remains empty until one arrives. This release does not archive images or provide live video.
+These are event snapshots. Downloads are limited to 15 seconds and 8 MiB, and non-image/error responses are rejected. The add-on must be able to reach the image host; after a successful retained publication, URL expiry does not remove the last picture. If the cloud window contains no downloadable image, the new entity remains empty until one arrives. This release keeps only the latest retained image and does not archive images or provide live video.
 
 ---
 

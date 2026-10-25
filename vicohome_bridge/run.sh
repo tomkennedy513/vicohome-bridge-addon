@@ -47,13 +47,17 @@ configure_mqtt() {
 }
 
 ensure_discovery_published() {
-  local camera_id="$1" camera_name="$2" safe_id marker now last=0 session=""
+  local camera_id="$1" camera_name="$2" safe_id marker now last=0 session="" last_type=""
+  local image_content_type="${3:-image/jpeg}"
+  if [ "$#" -lt 3 ] && [ -n "${EVENT_STORE:-}" ] && [ -f "$EVENT_STORE" ]; then
+    image_content_type=$(jq -r --arg camera "$camera_id" '.images[$camera].content_type // "image/jpeg"' "$EVENT_STORE")
+  fi
   safe_id=$(sanitize_id "$camera_id")
   marker="${DATA_DIR}/discovery_${safe_id}"
   now=$(bridge_now)
   if [ -f "$marker" ]; then
-    read -r session last < "$marker" || true
-    if [[ "$last" =~ ^[0-9]+$ ]] && [ "$session" = "$DISCOVERY_SESSION" ] && [ "$((now - last))" -lt "$DISCOVERY_REFRESH_SECONDS" ]; then
+    read -r session last last_type < "$marker" || true
+    if [[ "$last" =~ ^[0-9]+$ ]] && [ "$session" = "$DISCOVERY_SESSION" ] && [ "$last_type" = "$image_content_type" ] && [ "$((now - last))" -lt "$DISCOVERY_REFRESH_SECONDS" ]; then
       return 0
     fi
   fi
@@ -63,7 +67,7 @@ ensure_discovery_published() {
     domain=sensor
     case "$suffix" in motion|online) domain=binary_sensor;; latest_image) domain=image;; esac
     payload=$(jq -nc --arg suffix "$suffix" --arg ident "$device_ident" --arg name "Vicohome ${camera_name}" \
-      --arg base "${BASE_TOPIC}/${safe_id}" --arg availability "$AVAILABILITY_TOPIC" '
+      --arg base "${BASE_TOPIC}/${safe_id}" --arg availability "$AVAILABILITY_TOPIC" --arg image_type "$image_content_type" '
       {unique_id:($ident+"_"+$suffix), availability_topic:$availability,
        payload_available:"online",payload_not_available:"offline",
        device:{identifiers:[$ident],name:$name,manufacturer:"Vicohome",model:"Camera"}}
@@ -79,7 +83,7 @@ ensure_discovery_published() {
           {name:($name+" WiFi"),state_topic:($base+"/telemetry"),device_class:"signal_strength",state_class:"measurement",
            entity_category:"diagnostic",unit_of_measurement:"dBm",value_template:"{{ value_json.get(\"signalStrength\") }}"}
          elif $suffix == "latest_image" then
-          {name:($name+" Latest Image"),url_topic:($base+"/image/url")}
+          {name:($name+" Latest Image"),image_topic:($base+"/image"),content_type:$image_type}
          else
           {name:($name+" Online"),state_topic:($base+"/telemetry"),device_class:"connectivity",entity_category:"diagnostic",
            payload_on:"ON",payload_off:"OFF",value_template:"{% if value_json.get(\"online\") %}ON{% else %}OFF{% endif %}"}
@@ -90,7 +94,7 @@ ensure_discovery_published() {
     fi
   done
   mqtt_publish "${MQTT_ARGS[@]}" -t "${BASE_TOPIC}/${safe_id}/motion" -m OFF -q 1 -r || return 1
-  printf '%s %s\n' "$DISCOVERY_SESSION" "$now" > "$marker"
+  printf '%s %s %s\n' "$DISCOVERY_SESSION" "$now" "$image_content_type" > "$marker"
 }
 
 publish_device_health() {

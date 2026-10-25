@@ -16,7 +16,7 @@ multiple cameras, first-run seeding, restart deduplication, same-time event IDs,
 backlogs larger than the batch cap, expired-ID pruning, failed state/discovery
 publication, malformed/empty/failed CLI results, missing event fields, bootstrap
 flags, idle resets, quoted camera names, passwords, broker selection, and latest-image URL ordering/fallback/dedup/retry behavior.
-Go tests cover classification/timestamps, list error/empty output contracts,
+Go tests cover bounded HTTP snapshot downloads with generic/invalid MIME types, classification/timestamps, list error/empty output contracts,
 regional authentication and shared HTTP/API error handling.
 
 Build each architecture (Docker emulation is needed on a different host platform):
@@ -28,10 +28,10 @@ bash tests/docker_smoke.sh vicohome:test-amd64
 bash tests/docker_smoke.sh vicohome:test-aarch64
 ```
 
-The broker smoke test starts isolated anonymous and authenticated Mosquitto containers on a test network, runs real
+The broker smoke test starts isolated anonymous/authenticated Mosquitto containers and an HTTP image fixture serving a PNG as `binary/octet-stream`, runs real
 MQTT publication/subscription through the built add-on's Bash/jq/Go binaries,
 then removes the test containers/network. No host broker ports are exposed. It
-checks bird metadata, safely quoted discovery, retained state/idle/image URLs, transient
+checks bird metadata, safely quoted discovery, retained state/idle/image bytes and companion URLs, transient
 bird events, persistent dedup, process error behavior, and the real run.sh main
 loop/graceful shutdown with fake cloud responses. It supplies the s6 environment
 directory and fixture options in Bashio's cache; it does not start Supervisor,

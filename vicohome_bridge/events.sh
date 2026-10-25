@@ -18,7 +18,8 @@ init_event_store() {
     (.motion|type == "object" and all(.[];timestamp)) and
     (if has("images") then
       (.images|type == "object" and all(.[];type == "object" and (.ts|timestamp) and
-        (.key|type == "string" and length > 0) and (.url|type == "string" and test("^https?://"))))
+        (.key|type == "string" and length > 0) and (.url|type == "string" and test("^https?://")) and
+        (if has("transport") then .transport == "binary" and (.content_type|type == "string" and startswith("image/")) else true end)))
      else true end) and
     (if has("history_complete") then (.history_complete|type == "boolean") else true end)
   ' "${EVENT_STORE}" >/dev/null 2>&1
@@ -75,10 +76,14 @@ process_events() {
   return 0
 }
 
+download_event_image() {
+  printf '%s' "$1" | "${VICO_CLI:-/usr/local/bin/vico-cli}" images fetch --output "$2" 2>/tmp/vico_image_error.log
+}
+
 # Images have their own checkpoint: a seen event may have a newly signed URL,
 # and upgrades can seed images without replaying event-stream/motion messages.
 publish_latest_images() {
-  local json="$1" now images image camera safe_id
+  local json="$1" now images image camera safe_id image_file metadata content_type
   now=${BRIDGE_NOW:-$(bridge_now)}
   if ! images=$(printf '%s' "$json" | jq -c --slurpfile ledger "$EVENT_STORE" \
       --argjson now "$now" --arg mode images -f "${BRIDGE_LIB_DIR}/events.jq"); then
@@ -89,12 +94,33 @@ publish_latest_images() {
     [ -z "$image" ] && continue
     camera=$(jq -r '.camera' <<< "$image")
     safe_id=$(sanitize_id "$camera")
-    ensure_discovery_published "$camera" "$(jq -r '.event.deviceName // .event.cameraName // empty' <<< "$image")" || break
-    if ! mqtt_publish "${MQTT_ARGS[@]}" -t "${BASE_TOPIC}/${safe_id}/image/url" -m "$(jq -r '.url' <<< "$image")" -q 1 -r; then
-      bashio::log.warning "Image publication failed for ${safe_id}; retrying next poll."
+    image_file="${DATA_DIR}/latest_image_pending_${safe_id}"
+    if ! metadata=$(download_event_image "$(jq -r '.url' <<< "$image")" "$image_file"); then
+      bashio::log.warning "Image download failed for ${safe_id}; retrying next poll. $(head -n 1 /tmp/vico_image_error.log 2>/dev/null || true)"
+      rm -f "$image_file"
+      continue
+    fi
+    if ! content_type=$(jq -er '.content_type | select(type == "string" and startswith("image/"))' <<< "$metadata"); then
+      bashio::log.warning "Image download did not return valid metadata for ${safe_id}."
+      rm -f "$image_file"
+      continue
+    fi
+    if ! ensure_discovery_published "$camera" "$(jq -r '.event.deviceName // .event.cameraName // empty' <<< "$image")" "$content_type"; then
+      rm -f "$image_file"
       break
     fi
-    if ! jq --argjson image "$image" '.images[$image.camera] = ($image|{ts,key,url})' "$EVENT_STORE" > "${EVENT_STORE}.tmp" ||
+    if ! mqtt_publish "${MQTT_ARGS[@]}" -t "${BASE_TOPIC}/${safe_id}/image" -f "$image_file" -q 1 -r; then
+      bashio::log.warning "Image publication failed for ${safe_id}; retrying next poll."
+      rm -f "$image_file"
+      break
+    fi
+    rm -f "$image_file"
+    # Keep the companion URL topic for existing consumers; HA uses the bytes.
+    if ! mqtt_publish "${MQTT_ARGS[@]}" -t "${BASE_TOPIC}/${safe_id}/image/url" -m "$(jq -r '.url' <<< "$image")" -q 1 -r; then
+      bashio::log.warning "Image URL publication failed for ${safe_id}; retrying next poll."
+      break
+    fi
+    if ! jq --argjson image "$image" --arg content_type "$content_type" '.images[$image.camera] = (($image|{ts,key,url}) + {transport:"binary",content_type:$content_type})' "$EVENT_STORE" > "${EVENT_STORE}.tmp" ||
         ! mv "${EVENT_STORE}.tmp" "$EVENT_STORE"; then
       bashio::log.warning "Could not persist image acknowledgement; retrying next poll."
       break

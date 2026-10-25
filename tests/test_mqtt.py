@@ -45,10 +45,17 @@ BASE_TOPIC=vicohome; AVAILABILITY_TOPIC=vicohome/bridge/status; MQTT_ARGS=(-h br
         row=next(r for r in rows if r[r.index('-t')+1]=='homeassistant/image/vicohome_camera_v3_a_latest_image/config')
         config=json.loads(row[row.index('-m')+1])
         self.assertEqual(config['unique_id'],'vicohome_camera_v3_a_latest_image')
-        self.assertEqual(config['url_topic'],'vicohome/a/image/url')
+        self.assertEqual(config['image_topic'],'vicohome/a/image')
+        self.assertEqual(config['content_type'],'image/jpeg')
         self.assertEqual(config['device']['identifiers'],['vicohome_camera_v3_a'])
-        self.assertNotIn('content_type',config)
+        self.assertNotIn('url_topic',config)
         self.assertIn('-r',row)
+
+    def test_image_mime_change_refreshes_discovery(self):
+        result,rows=self.shell('ensure_discovery_published A Feeder; ensure_discovery_published A Feeder image/png')
+        self.assertEqual(result.returncode,0,result.stderr)
+        configs=[json.loads(r[r.index('-m')+1]) for r in rows if r[r.index('-t')+1]=='homeassistant/image/vicohome_camera_v3_a_latest_image/config']
+        self.assertEqual([c['content_type'] for c in configs],['image/jpeg','image/png'])
 
     def test_failed_discovery_does_not_set_marker(self):
         result,rows=self.shell('ensure_discovery_published A Test; ensure_discovery_published A Test',fail='/config')

@@ -11,6 +11,7 @@ jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"retryable",
 cat > /tmp/fake-vico-cli <<'SH'
 #!/usr/bin/env bash
 printf '%s\n' "$*" >> /tmp/cloud-calls
+if [ "$1" = images ]; then exec /usr/local/bin/vico-cli "$@"; fi
 if [ "$1" = devices ]; then
   echo '[{"serialNumber":"BirdCam","deviceName":"Feeder","batteryLevel":80}]'
 else

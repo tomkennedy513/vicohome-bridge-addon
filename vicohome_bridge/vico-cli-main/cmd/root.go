@@ -11,6 +11,7 @@ import (
 
 	"github.com/dydx/vico-cli/cmd/devices"
 	"github.com/dydx/vico-cli/cmd/events"
+	"github.com/dydx/vico-cli/cmd/images"
 	"github.com/spf13/cobra"
 )
 
@@ -53,4 +54,5 @@ func init() {
 	rootCmd.AddCommand(devices.GetDevicesCmd())
 	rootCmd.AddCommand(events.GetEventsCmd())
 	rootCmd.AddCommand(versionCmd)
+	rootCmd.AddCommand(images.GetImagesCmd())
 }

@@ -1,5 +1,11 @@
 # Vicohome Bridge Add-on Changelog
 
+## 2.2.2
+- Publish actual retained image bytes with a content type detected from the file signature. This fixes snapshots served by the cloud as `binary/octet-stream`, which Home Assistant rejects in URL mode.
+- Bound snapshot downloads to 15 seconds and 8 MiB, reject non-image responses, and keep failed downloads/publications retryable.
+- Migrate existing Latest Image entities and URL-only checkpoints automatically without replaying motion; preserve the companion image URL topic for compatibility.
+- Retained image bytes remain displayable after the source URL expires. Add real HTTP/MQTT tests with the cloud's generic MIME type.
+
 ## 2.2.1
 - Fix ISO timestamp parsing in the bridge: jq's catch handler had received the numeric-conversion error instead of the original timestamp, silently filtering real CLI events and images.
 - Use actual CLI-style UTC ISO timestamps throughout delivery and broker regression fixtures to cover the full CLI-to-MQTT boundary.

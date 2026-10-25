@@ -17,12 +17,15 @@ for attempt in {1..10}; do
   sleep 1
 done
 init_event_store
-old=$(jq -nc --argjson ts "$((BRIDGE_NOW - 10))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"old",timestamp:($ts|todateiso8601),eventType:"bird",birdName:"Robin",imageUrl:"https://example.invalid/old.jpg"}]')
+old=$(jq -nc --argjson ts "$((BRIDGE_NOW - 10))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"old",timestamp:($ts|todateiso8601),eventType:"bird",birdName:"Robin",imageUrl:"http://images/snapshot.png?old"}]')
 process_events "$old" history
 publish_latest_images "$old"
 image_config=$(mosquitto_sub -h broker -t homeassistant/image/vicohome_camera_v3_birdcam_latest_image/config -C 1 -W 15)
-jq -e '.url_topic == "vicohome/birdcam/image/url" and .device.identifiers == ["vicohome_camera_v3_birdcam"]' <<< "$image_config" >/dev/null
-[ "$(mosquitto_sub -h broker -t vicohome/birdcam/image/url -C 1 -W 15)" = https://example.invalid/old.jpg ]
+jq -e '.image_topic == "vicohome/birdcam/image" and .content_type == "image/png" and .device.identifiers == ["vicohome_camera_v3_birdcam"]' <<< "$image_config" >/dev/null
+[ "$(mosquitto_sub -h broker -t vicohome/birdcam/image/url -C 1 -W 15)" = 'http://images/snapshot.png?old' ]
+mosquitto_sub -h broker -t vicohome/birdcam/image -C 1 -N -W 15 > /tmp/received-image.png
+printf '%s' 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGNgaPgPAAIDAYAkYfWXAAAAAElFTkSuQmCC' | base64 -d > /tmp/expected-image.png
+cmp /tmp/received-image.png /tmp/expected-image.png
 state=$(mosquitto_sub -h broker -t vicohome/birdcam/state -C 1 )
 jq -e '.traceId == "old" and .birdName == "Robin"' <<< "$state" >/dev/null
 config=$(mosquitto_sub -h broker -t homeassistant/sensor/vicohome_camera_v3_birdcam_last_event/config -C 1 )
@@ -32,10 +35,10 @@ jq -e '.device.name == "Vicohome Feeder \"Garden\""' <<< "$config" >/dev/null
 mosquitto_sub -h broker -t vicohome/birdcam/events -C 1 -W 5 > /tmp/bird-event &
 listener=$!
 sleep 1
-live=$(jq -nc --argjson ts "$((BRIDGE_NOW + 1))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"new",timestamp:($ts|todateiso8601),eventType:"bird",birdName:"Robin",keyShotUrl:"https://example.invalid/new.jpg"}]')
+live=$(jq -nc --argjson ts "$((BRIDGE_NOW + 1))" '[{serialNumber:"BirdCam",deviceName:"Feeder \"Garden\"",traceId:"new",timestamp:($ts|todateiso8601),eventType:"bird",birdName:"Robin",keyShotUrl:"http://images/snapshot.png?new"}]')
 process_events "$live" live
 publish_latest_images "$live"
-[ "$(mosquitto_sub -h broker -t vicohome/birdcam/image/url -C 1 -W 15)" = https://example.invalid/new.jpg ]
+[ "$(mosquitto_sub -h broker -t vicohome/birdcam/image/url -C 1 -W 15)" = http://images/snapshot.png?new ]
 wait "$listener"
 jq -e '.traceId == "new" and .eventType == "bird"' /tmp/bird-event >/dev/null
 # Reopening the durable store and replaying a batch must leave it unchanged.
@@ -60,10 +63,11 @@ cat > /data/options.json <<'JSON'
 JSON
 cat > /tmp/fake-vico-cli <<'SH'
 #!/usr/bin/env bash
+if [ "$1" = images ]; then exec /usr/local/bin/vico-cli "$@"; fi
 if [ "$1" = devices ]; then
   echo '[]'
 else
-  jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"startup",timestamp:(($ts-1)|todateiso8601),eventType:"bird",birdName:"Blackbird",imageUrl:"https://example.invalid/startup.jpg"}]'
+  jq -nc --argjson ts "$(date +%s)" '[{serialNumber:"BirdCam",traceId:"startup",timestamp:(($ts-1)|todateiso8601),eventType:"bird",birdName:"Blackbird",imageUrl:"http://images/snapshot.png?startup"}]'
 fi
 SH
 chmod +x /tmp/fake-vico-cli
@@ -82,7 +86,9 @@ if ! state=$(mosquitto_sub -h broker -t vicoruntime/birdcam/state -C 1 -W 45); t
 fi
 printf 'Startup state received after %ss.\n' "$(( $(date +%s) - startup_start ))"
 jq -e '.eventType == "bird" and .birdName == "Blackbird"' <<< "$state" >/dev/null
-[ "$(mosquitto_sub -h broker -t vicoruntime/birdcam/image/url -C 1 -W 45)" = https://example.invalid/startup.jpg ]
+[ "$(mosquitto_sub -h broker -t vicoruntime/birdcam/image/url -C 1 -W 45)" = 'http://images/snapshot.png?startup' ]
+mosquitto_sub -h broker -t vicoruntime/birdcam/image -C 1 -N -W 15 > /tmp/startup-image.png
+cmp /tmp/startup-image.png /tmp/expected-image.png
 kill -TERM "$bridge_pid"
 wait "$bridge_pid"
 [ "$(mosquitto_sub -h broker -t vicoruntime/bridge/status -C 1 -W 5)" = offline ]

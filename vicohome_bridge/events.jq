@@ -26,7 +26,7 @@ if type != "array" then error("expected event array") else . end
     | map(select(
         [.ts,.key] > [($store.images[.camera].ts // 0),($store.images[.camera].key // "")]
         or ([.ts,.key] == [($store.images[.camera].ts // 0),($store.images[.camera].key // "")]
-            and .url != $store.images[.camera].url)))
+            and (.url != $store.images[.camera].url or $store.images[.camera].transport != "binary"))))
     | sort_by(.ts,.key) | .[:60] | .[]
   else
     ([ $all[] | select(.ts <= $store.cutoff or $mode == "history") ]
