@@ -4,7 +4,7 @@ Repo: <https://github.com/tomkennedy513/vicohome-bridge-addon>
 
 Fork of [KIWIDUDE564/vicohome-bridge-addon](https://github.com/KIWIDUDE564/vicohome-bridge-addon), preserving the upstream bridge architecture and bundled dydx/vico-cli attribution.
 
-Version 2.1.1 supports **amd64** and **aarch64 (ARM64)**. Changes under review live on `fix/multiarch-stability`; adding the repository URL in Home Assistant uses the default branch, so it will not install this branch until it is integrated. To test before integration, clone this fork with `git clone --branch fix/multiarch-stability https://github.com/tomkennedy513/vicohome-bridge-addon.git`, copy its `vicohome_bridge` directory into Home Assistant's `/addons` directory, reload the add-on store, and install it as a local add-on. Back up existing add-on data first; a local add-on has a different Supervisor identity.
+Version 2.2.0 supports **amd64** and **aarch64 (ARM64)**. Changes under review live on `fix/multiarch-stability`; adding the repository URL in Home Assistant uses the default branch, so it will not install this branch until it is integrated. To test before integration, clone this fork with `git clone --branch fix/multiarch-stability https://github.com/tomkennedy513/vicohome-bridge-addon.git`, copy its `vicohome_bridge` directory into Home Assistant's `/addons` directory, reload the add-on store, and install it as a local add-on. Back up existing add-on data first; a local add-on has a different Supervisor identity.
 
 > ⚠️ **Unofficial integration.**  
 > This add-on is just a thin wrapper around the excellent open-source
@@ -172,7 +172,7 @@ These extra details make it easier to see what the Vicohome cloud is returning a
 
 #### Historical bootstrap for Last Event sensors
 
-When the recent event list is empty, `bootstrap_history` enables a one-time five-day pull using the CLI's supported `--startTime` and `--endTime` arguments. It seeds only the latest Last Event state **per camera**, without publishing historical event-stream messages or triggering motion. History work is capped at 60 cameras per pass, resumes after failures/restarts, and is marked complete only after successful state delivery. Initial recent results are seeded the same way for events predating this installation's persistent cutoff.
+When the recent event list is empty, `bootstrap_history` enables a one-time five-day pull using the CLI's supported `--startTime` and `--endTime` arguments. It seeds only the latest Last Event state **per camera**, without publishing historical event-stream messages or triggering motion. History work is capped at 60 cameras per pass, resumes after failures/restarts, and is marked complete only after successful state/image delivery. Initial recent results are seeded the same way for events predating this installation's persistent cutoff.
 
 #### Delivery, restarts, and motion
 
@@ -217,6 +217,7 @@ Each device should contain:
 - `Battery` (sensor)
 - `WiFi` (sensor)
 - `Online` (binary_sensor)
+- `Latest Image` (image)
 
 You can also check via **Developer Tools → States** and search for `vicohome`.
 
@@ -226,11 +227,12 @@ You can also check via **Developer Tools → States** and search for `vicohome`.
 
 By default the add-on:
 
-- Publishes per-camera JSON events to:
+- Publishes per-camera topics:
   - `vicohome/<safe_camera_id>/events`
   - `vicohome/<safe_camera_id>/state`
   - `vicohome/<safe_camera_id>/motion` (`ON`/`OFF`)
   - `vicohome/<safe_camera_id>/telemetry` (battery/WiFi/online details)
+  - `vicohome/<safe_camera_id>/image/url` (retained latest image URL)
 
 - Registers MQTT Discovery entries for:
 
@@ -239,6 +241,7 @@ By default the add-on:
   - `sensor.vicohome_<camera>_battery`
   - `sensor.vicohome_<camera>_wifi`
   - `binary_sensor.vicohome_<camera>_online`
+  - `image.vicohome_<camera>_latest_image`
 
 Where `<camera>` is a normalized ID (lowercase, non-alphanumerics replaced with `_`).
 
@@ -252,6 +255,18 @@ The **Last Event** sensor exposes attributes such as:
 - and other fields from the Vicohome API.
 
 All of this data ultimately comes from `vico-cli` – this add-on just forwards and reshapes it.
+
+---
+
+## Latest Image
+
+After updating and restarting the add-on, each existing MQTT camera device gains a **Latest Image** entity. Add it to a dashboard using a **Picture entity** card and select that image entity in the UI. No manual MQTT YAML is required.
+
+The bridge selects the newest available image per camera from the fetched event window, using `imageUrl` first and `keyShotUrl` as the fallback. Home Assistant downloads the image from the retained URL. Events with missing/invalid URLs are skipped, preserving the last available image. Older history cannot replace a newer image.
+
+Image delivery has an independent checkpoint in `/data/delivery.json`: previously seen events can seed images without replaying motion or event-stream messages, and failed image publications retry independently. Image publications are capped at 60 cameras per pass. A refreshed signed URL for the same sighting is republished when returned by the cloud; an unchanged URL is not republished on every poll.
+
+These are event snapshots. Signed URLs may expire before another image arrives, and Home Assistant must be able to reach the image host. If the cloud window contains no usable image, the new entity remains empty until one arrives. This release does not archive images or provide live video.
 
 ---
 

@@ -1,5 +1,10 @@
 # Vicohome Bridge Add-on Changelog
 
+## 2.2.0
+- Add a retained MQTT Latest Image entity to each existing camera device using the latest available event image URL, falling back to the bird keyshot URL.
+- Track image delivery separately so already-seen events can populate images after an upgrade without replaying motion or event-stream messages. Failed image publications retry, late history cannot replace newer images, and refreshed signed URLs can update the same event.
+- Skip missing/invalid image URLs, bound image publications to 60 cameras per pass, and preserve existing entity identities.
+
 ## 2.1.1
 - Keep polling after a camera discovery/telemetry publication fails, including MQTT authentication rejection or broker outages.
 - Initialize Bashio at script scope so shutdown logging retains its variables after the main function exits.

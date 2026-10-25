@@ -59,9 +59,9 @@ ensure_discovery_published() {
   fi
   if [ -z "$camera_name" ] || [ "$camera_name" = null ]; then camera_name="Camera ${camera_id}"; fi
   local device_ident="vicohome_camera_v3_${safe_id}" suffix domain payload
-  for suffix in last_event motion battery wifi online; do
+  for suffix in last_event motion battery wifi online latest_image; do
     domain=sensor
-    case "$suffix" in motion|online) domain=binary_sensor;; esac
+    case "$suffix" in motion|online) domain=binary_sensor;; latest_image) domain=image;; esac
     payload=$(jq -nc --arg suffix "$suffix" --arg ident "$device_ident" --arg name "Vicohome ${camera_name}" \
       --arg base "${BASE_TOPIC}/${safe_id}" --arg availability "$AVAILABILITY_TOPIC" '
       {unique_id:($ident+"_"+$suffix), availability_topic:$availability,
@@ -78,6 +78,8 @@ ensure_discovery_published() {
          elif $suffix == "wifi" then
           {name:($name+" WiFi"),state_topic:($base+"/telemetry"),device_class:"signal_strength",state_class:"measurement",
            entity_category:"diagnostic",unit_of_measurement:"dBm",value_template:"{{ value_json.get(\"signalStrength\") }}"}
+         elif $suffix == "latest_image" then
+          {name:($name+" Latest Image"),url_topic:($base+"/image/url")}
          else
           {name:($name+" Online"),state_topic:($base+"/telemetry"),device_class:"connectivity",entity_category:"diagnostic",
            payload_on:"ON",payload_off:"OFF",value_template:"{% if value_json.get(\"online\") %}ON{% else %}OFF{% endif %}"}

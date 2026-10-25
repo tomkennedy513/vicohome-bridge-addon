@@ -140,10 +140,71 @@ init_event_store || exit 1
 
     def test_nested_ledger_corruption_fails_closed(self):
         path=self.data/'delivery.json';original=json.loads(path.read_text())
-        for field,value in [('seen',{'key':None}),('latest',{'A':{'ts':None,'key':'id'}}),('motion',{'A':'bad'})]:
+        for field,value in [('seen',{'key':None}),('latest',{'A':{'ts':None,'key':'id'}}),('motion',{'A':'bad'}),('images',{'A':{'ts':2000000000,'key':'id','url':None}})]:
             ledger=dict(original);ledger[field]=value;path.write_text(json.dumps(ledger))
             self.assertNotEqual(self.shell('init_event_store').returncode,0,field)
         self.assertEqual(self.messages(),[])
+
+    def images(self,events,fail=''):
+        result=self.shell('publish_latest_images "$(cat "$DATA/input")"',events,fail)
+        self.assertEqual(result.returncode,0,result.stderr)
+        return [(t,p) for t,p in self.messages() if t.endswith('/image/url')]
+
+    def test_image_latest_per_camera_and_restart(self):
+        events=[dict(self.event(i,c),imageUrl='https://example.invalid/'+c+str(i)+'.jpg') for c in ['A','B'] for i in [1,2]]
+        self.images(events[::-1])
+        self.assertEqual(self.messages(),[('vicohome/a/image/url','https://example.invalid/A2.jpg'),('vicohome/b/image/url','https://example.invalid/B2.jpg')])
+        self.images(events)
+        self.assertEqual(len(self.messages()),2)
+
+    def test_image_primary_keyshot_fallback_and_missing(self):
+        events=[dict(self.event(1,'A'),imageUrl='https://example.invalid/primary.jpg',keyShotUrl='https://example.invalid/key.jpg'),dict(self.event(1,'B'),imageUrl='',keyShotUrl='https://example.invalid/key.jpg'),self.event(1,'C'),dict(self.event(1,'D'),imageUrl='javascript:bad')]
+        self.images(events)
+        self.assertEqual(self.messages(),[('vicohome/a/image/url','https://example.invalid/primary.jpg'),('vicohome/b/image/url','https://example.invalid/key.jpg')])
+
+    def test_image_seen_events_seed_without_motion_replay(self):
+        events=[dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')]
+        self.batch(events);self.log.unlink()
+        self.images(events)
+        self.assertEqual(self.messages(),[('vicohome/a/image/url','https://example.invalid/bird.jpg')])
+
+    def test_image_failure_is_retryable(self):
+        events=[dict(self.event(1),imageUrl='https://example.invalid/bird.jpg')]
+        self.images(events,fail='/image/url')
+        self.assertEqual(json.loads((self.data/'delivery.json').read_text()).get('images',{}),{})
+        self.images(events)
+        self.assertEqual(len(self.messages()),2)
+        self.assertEqual(json.loads((self.data/'delivery.json').read_text())['images']['A']['url'],'https://example.invalid/bird.jpg')
+
+    def test_image_history_cannot_regress_newer_image(self):
+        self.images([dict(self.event(3),imageUrl='https://example.invalid/new.jpg')])
+        self.images([dict(self.event(1,ts=1999999900),imageUrl='https://example.invalid/old.jpg')])
+        self.assertEqual(len(self.messages()),1)
+
+    def test_image_rotated_url_refreshes_same_seen_event(self):
+        self.images([dict(self.event(1),imageUrl='https://example.invalid/bird.jpg?sig=old')])
+        self.images([dict(self.event(1),imageUrl='https://example.invalid/bird.jpg?sig=new')])
+        self.assertEqual(len(self.messages()),2)
+        self.assertTrue(self.messages()[-1][1].endswith('sig=new'))
+
+    def test_image_backlog_is_bounded_and_drains(self):
+        events=[dict(self.event(1,'camera'+str(i)),imageUrl='https://example.invalid/'+str(i)+'.jpg') for i in range(65)]
+        self.images(events);self.assertEqual(len(self.messages()),60)
+        self.images(events);self.assertEqual(len(self.messages()),65)
+
+    def test_history_image_failure_remains_retryable(self):
+        cli=self.data/'history-cli'
+        cli.write_text('#!/bin/bash\nif [[ "$*" == *--startTime* ]]; then cat "'+str(self.data/'input')+'"; else echo "[]"; fi\n')
+        cli.chmod(0o755)
+        events=[dict(self.event(1,ts=1999999900),imageUrl='https://example.invalid/history.jpg')]
+        cmd='VICO_CLI="$DATA/history-cli"; BOOTSTRAP_HISTORY=true; fetch_events live'
+        result=self.shell(cmd,events,fail='/image/url')
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertFalse(json.loads((self.data/'delivery.json').read_text()).get('history_complete',False))
+        result=self.shell(cmd,events)
+        self.assertEqual(result.returncode,0,result.stderr)
+        self.assertTrue(json.loads((self.data/'delivery.json').read_text())['history_complete'])
+        self.assertEqual(sum(t.endswith('/image/url') for t,p in self.messages()),2)
 
     def test_corrupt_store_fails_closed(self):
         (self.data/'delivery.json').write_text('broken')

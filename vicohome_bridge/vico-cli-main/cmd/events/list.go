@@ -266,6 +266,9 @@ func transformRawEvent(eventMap map[string]interface{}) Event {
 		event.Period = val
 	}
 
+	if val, ok := eventMap["keyShotUrl"].(string); ok {
+		event.KeyShotURL = val
+	}
 	if val, ok := eventMap["imageUrl"].(string); ok {
 		event.ImageURL = val
 	}

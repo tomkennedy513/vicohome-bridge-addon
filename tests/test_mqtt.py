@@ -30,7 +30,7 @@ BASE_TOPIC=vicohome; AVAILABILITY_TOPIC=vicohome/bridge/status; MQTT_ARGS=(-h br
     def test_names_retention_templates_and_identities(self):
         result,rows=self.shell('ensure_discovery_published "Camera-A" \'Front "Door"\\Back\'')
         self.assertEqual(result.returncode,0,result.stderr)
-        self.assertEqual(len(rows),6)
+        self.assertEqual(len(rows),7)
         configs=[json.loads(r[r.index('-m')+1]) for r in rows if r[r.index('-t')+1].endswith('/config')]
         self.assertTrue(all('-r' in r for r in rows))
         self.assertEqual(configs[0]['unique_id'],'vicohome_camera_v3_camera_a_last_event')
@@ -39,6 +39,17 @@ BASE_TOPIC=vicohome; AVAILABILITY_TOPIC=vicohome/bridge/status; MQTT_ARGS=(-h br
         self.assertEqual(configs[1]['off_delay'],5)
         self.assertEqual(rows[-1][rows[-1].index('-m')+1],'OFF')
 
+    def test_latest_image_discovery(self):
+        result,rows=self.shell('ensure_discovery_published A Feeder')
+        self.assertEqual(result.returncode,0,result.stderr)
+        row=next(r for r in rows if r[r.index('-t')+1]=='homeassistant/image/vicohome_camera_v3_a_latest_image/config')
+        config=json.loads(row[row.index('-m')+1])
+        self.assertEqual(config['unique_id'],'vicohome_camera_v3_a_latest_image')
+        self.assertEqual(config['url_topic'],'vicohome/a/image/url')
+        self.assertEqual(config['device']['identifiers'],['vicohome_camera_v3_a'])
+        self.assertNotIn('content_type',config)
+        self.assertIn('-r',row)
+
     def test_failed_discovery_does_not_set_marker(self):
         result,rows=self.shell('ensure_discovery_published A Test; ensure_discovery_published A Test',fail='/config')
         self.assertGreaterEqual(len(rows),2)
@@ -46,7 +57,7 @@ BASE_TOPIC=vicohome; AVAILABILITY_TOPIC=vicohome/bridge/status; MQTT_ARGS=(-h br
 
     def test_successful_discovery_is_cached(self):
         result,rows=self.shell('ensure_discovery_published A Test; ensure_discovery_published A Test')
-        self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(len(rows),6)
+        self.assertEqual(result.returncode,0,result.stderr);self.assertEqual(len(rows),7)
 
     def test_external_settings_and_password_arguments(self):
         result,rows=self.shell('HOST=external; configure_mqtt; mqtt_publish "${MQTT_ARGS[@]}" -t test -m test')
