@@ -73,3 +73,19 @@ func TestTimestampVariantsAndBirdClassification(t *testing.T) {
 		t.Fatal(string(b))
 	}
 }
+
+func TestImageURLsArePreserved(t *testing.T) {
+	for _, tt := range []struct {
+		raw            map[string]interface{}
+		image, keyshot string
+	}{
+		{map[string]interface{}{"imageUrl": "https://example.invalid/event.jpg"}, "https://example.invalid/event.jpg", ""},
+		{map[string]interface{}{"keyShotUrl": "https://example.invalid/direct.jpg"}, "", "https://example.invalid/direct.jpg"},
+		{map[string]interface{}{"keyshots": []interface{}{map[string]interface{}{"imageUrl": "https://example.invalid/bird.jpg"}}}, "", "https://example.invalid/bird.jpg"},
+	} {
+		got := transformRawEvent(tt.raw)
+		if got.ImageURL != tt.image || got.KeyShotURL != tt.keyshot {
+			t.Fatalf("image=%q keyshot=%q, want %q %q", got.ImageURL, got.KeyShotURL, tt.image, tt.keyshot)
+		}
+	}
+}

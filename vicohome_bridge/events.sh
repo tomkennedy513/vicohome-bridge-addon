@@ -16,6 +16,10 @@ init_event_store() {
     (.seen|type == "object" and all(.[];timestamp)) and
     (.latest|type == "object" and all(.[];type == "object" and (.ts|timestamp) and (.key|type == "string" and length > 0))) and
     (.motion|type == "object" and all(.[];timestamp)) and
+    (if has("images") then
+      (.images|type == "object" and all(.[];type == "object" and (.ts|timestamp) and
+        (.key|type == "string" and length > 0) and (.url|type == "string" and test("^https?://"))))
+     else true end) and
     (if has("history_complete") then (.history_complete|type == "boolean") else true end)
   ' "${EVENT_STORE}" >/dev/null 2>&1
 }
@@ -71,6 +75,34 @@ process_events() {
   return 0
 }
 
+# Images have their own checkpoint: a seen event may have a newly signed URL,
+# and upgrades can seed images without replaying event-stream/motion messages.
+publish_latest_images() {
+  local json="$1" now images image camera safe_id
+  now=${BRIDGE_NOW:-$(bridge_now)}
+  if ! images=$(printf '%s' "$json" | jq -c --slurpfile ledger "$EVENT_STORE" \
+      --argjson now "$now" --arg mode images -f "${BRIDGE_LIB_DIR}/events.jq"); then
+    bashio::log.warning "Invalid image event response; retrying next poll."
+    return 0
+  fi
+  while IFS= read -r image; do
+    [ -z "$image" ] && continue
+    camera=$(jq -r '.camera' <<< "$image")
+    safe_id=$(sanitize_id "$camera")
+    ensure_discovery_published "$camera" "$(jq -r '.event.deviceName // .event.cameraName // empty' <<< "$image")" || break
+    if ! mqtt_publish "${MQTT_ARGS[@]}" -t "${BASE_TOPIC}/${safe_id}/image/url" -m "$(jq -r '.url' <<< "$image")" -q 1 -r; then
+      bashio::log.warning "Image publication failed for ${safe_id}; retrying next poll."
+      break
+    fi
+    if ! jq --argjson image "$image" '.images[$image.camera] = ($image|{ts,key,url})' "$EVENT_STORE" > "${EVENT_STORE}.tmp" ||
+        ! mv "${EVENT_STORE}.tmp" "$EVENT_STORE"; then
+      bashio::log.warning "Could not persist image acknowledgement; retrying next poll."
+      break
+    fi
+  done <<< "$images"
+  return 0
+}
+
 reset_motion() {
   local force="${1:-false}" now camera safe_id
   now=${BRIDGE_NOW:-$(bridge_now)}
@@ -103,10 +135,12 @@ fetch_events() {
     return 0
   fi
   process_events "$output" "$mode"
+  publish_latest_images "$output"
   if [ "$mode" = history ]; then
-    local remaining
+    local remaining remaining_images
     remaining=$(printf '%s' "$output" | jq -c --slurpfile ledger "$EVENT_STORE" --argjson now "${BRIDGE_NOW:-$(bridge_now)}" --arg mode history -f "${BRIDGE_LIB_DIR}/events.jq") || return 0
-    if [ -z "$remaining" ]; then
+    remaining_images=$(printf '%s' "$output" | jq -c --slurpfile ledger "$EVENT_STORE" --argjson now "${BRIDGE_NOW:-$(bridge_now)}" --arg mode images -f "${BRIDGE_LIB_DIR}/events.jq") || return 0
+    if [ -z "$remaining" ] && [ -z "$remaining_images" ]; then
       jq '.history_complete = true' "$EVENT_STORE" > "${EVENT_STORE}.tmp" && mv "${EVENT_STORE}.tmp" "$EVENT_STORE"
     fi
   fi
